@@ -6,7 +6,7 @@ on:
       - completed
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: documentportal-live-class
+  ECR_REPOSITORY: documentportalliveclass
   ECS_SERVICE: document-portal-service
   ECS_CLUSTER: document-portal-cluster
   ECS_TASK_DEFINITION: .github/workflows/task_definition.json
