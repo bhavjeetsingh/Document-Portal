@@ -72,11 +72,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4  # Updated to v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Debug ECS Resources
+        run: |
+          echo "Checking if cluster exists..."
+          aws ecs describe-clusters --clusters ${{ env.ECS_CLUSTER }} || echo "Cluster not found"
+          
+          echo "Checking if service exists..."
+          aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} || echo "Service not found"
 
       - name: Render Task Definition
         id: render-task
@@ -85,14 +93,54 @@ jobs:
           task-definition: ${{ env.ECS_TASK_DEFINITION }}
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ needs.build-and-push.outputs.image }}
-      - name: Print Rendered Task
-        run: cat ${{ steps.render-task.outputs.task-definition }}
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.render-task.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+
+      - name: Register Task Definition
+        id: register-task-def
+        run: |
+          TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://${{ steps.render-task.outputs.task-definition }} \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "task-definition-arn=$TASK_DEFINITION_ARN" >> $GITHUB_OUTPUT
+
+      - name: Check if ECS Service Exists
+        id: check-service
+        run: |
+          if aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} --query 'services[?status==`ACTIVE`] | [0].serviceName' --output text | grep -q ${{ env.ECS_SERVICE }}; then
+            echo "service-exists=true" >> $GITHUB_OUTPUT
+            echo "Service exists"
+          else
+            echo "service-exists=false" >> $GITHUB_OUTPUT
+            echo "Service does not exist"
+          fi
+
+      - name: Create ECS Service
+        if: steps.check-service.outputs.service-exists == 'false'
+        run: |
+          echo "Creating ECS service..."
+          aws ecs create-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register-task-def.outputs.task-definition-arn }} \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-12345,subnet-67890],securityGroups=[sg-12345],assignPublicIp=ENABLED}" \
+            --enable-logging
+          
+          echo "Waiting for service to become stable..."
+          aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
+
+      - name: Update ECS Service
+        if: steps.check-service.outputs.service-exists == 'true'
+        run: |
+          echo "Updating existing ECS service..."
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register-task-def.outputs.task-definition-arn }}
+          
+          echo "Waiting for service to become stable..."
+          aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
+
       - name: Done!
         run: echo "Deployed to ECS Fargate Successfully"
