@@ -124,7 +124,7 @@ jobs:
             --task-definition ${{ steps.register-task-def.outputs.task-definition-arn }} \
             --desired-count 1 \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[subnet-085ea525dd0f56280,subnet-02afd94f34fa1e491],securityGroups=[sg-12345],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-085ea525dd0f56280,subnet-02afd94f34fa1e491],securityGroups=[sg-0ee2f1cfb1dc15d64],assignPublicIp=ENABLED}" \
             --enable-logging
           
           echo "Waiting for service to become stable..."
