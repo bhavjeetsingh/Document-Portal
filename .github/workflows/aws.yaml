@@ -6,7 +6,7 @@ on:
       - completed
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: documentportalliveclass
+  ECR_REPOSITORY: document_portal
   ECS_SERVICE: document-portal-service
   ECS_CLUSTER: document-portal-cluster
   ECS_TASK_DEFINITION: .github/workflows/task_definition.json
@@ -124,7 +124,7 @@ jobs:
             --task-definition ${{ steps.register-task-def.outputs.task-definition-arn }} \
             --desired-count 1 \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[subnet-12345,subnet-67890],securityGroups=[sg-12345],assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[subnet-085ea525dd0f56280,subnet-02afd94f34fa1e491],securityGroups=[sg-12345],assignPublicIp=ENABLED}" \
             --enable-logging
           
           echo "Waiting for service to become stable..."
