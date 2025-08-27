@@ -5,8 +5,9 @@ import json
 import uuid
 import hashlib
 import shutil
+import pandas as pd
 from pathlib import Path
-from typing import Iterable, List, Optional, Dict, Any
+from typing import Iterable, List, Optional, Dict, Any, Union
 import fitz  # PyMuPDF
 from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -17,7 +18,13 @@ from exception.custom_exception import DocumentPortalException
 from utils.file_io import generate_session_id, save_uploaded_files
 from utils.document_ops import load_documents, concat_for_analysis, concat_for_comparison
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt",".md", ".ppt", ".pptx", 
+    ".xlsx", ".xls", ".csv", ".json", ".rtf"}
+
+# for database connections (for sql support)
+SUPPORTED_DB_TYPES={
+    'postgresql','mysql','sqlite','mongodb','oracle'
+}
 
 # FAISS Manager (load-or-create)
 class FaissManager:
@@ -174,7 +181,7 @@ class ChatIngestor:
             
 class DocHandler:
     """
-    PDF save + read (page-wise) for analysis.
+    Universal document save + read fir analysis - supports all document types.
     """
     def __init__(self, data_dir: Optional[str] = None, session_id: Optional[str] = None):
         self.data_dir = data_dir or os.getenv("DATA_STORAGE_PATH", os.path.join(os.getcwd(), "data", "document_analysis"))
@@ -183,39 +190,106 @@ class DocHandler:
         os.makedirs(self.session_path, exist_ok=True)
         log.info("DocHandler initialized", session_id=self.session_id, session_path=self.session_path)
 
-    def save_pdf(self, uploaded_file) -> str:
+    def save_document(self, uploaded_file) -> str:
+        # updated save any supported document type
         try:
             filename = os.path.basename(uploaded_file.name)
-            if not filename.lower().endswith(".pdf"):
-                raise ValueError("Invalid file type. Only PDFs are allowed.")
+            file_ext = Path(filename).suffix.lower()
+            
+            if file_ext not in SUPPORTED_EXTENSIONS:
+                raise ValueError(f'Unsupported file type: {file_ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}')
             save_path = os.path.join(self.session_path, filename)
             with open(save_path, "wb") as f:
                 if hasattr(uploaded_file, "read"):
                     f.write(uploaded_file.read())
                 else:
                     f.write(uploaded_file.getbuffer())
-            log.info("PDF saved successfully", file=filename, save_path=save_path, session_id=self.session_id)
+                    
+            log.info("Document saved successfully", file=filename, type=file_ext, save_path=save_path, session_id=self.session_id)
             return save_path
         except Exception as e:
-            log.error("Failed to save PDF", error=str(e), session_id=self.session_id)
-            raise DocumentPortalException(f"Failed to save PDF: {str(e)}", e) from e
+            log.error("Failed to save document", error=str(e), session_id=self.session_id)
+            raise DocumentPortalException(f"Failed to save document: {str(e)}", e) from e
 
-    def read_pdf(self, pdf_path: str) -> str:
+    def read_document(self, doc_path: str) -> str:
+        # now def is updated  before it was read_pdf
         try:
-            text_chunks = []
-            with fitz.open(pdf_path) as doc:
-                for page_num in range(doc.page_count):
-                    page = doc.load_page(page_num)
-                    text_chunks.append(f"\n--- Page {page_num + 1} ---\n{page.get_text()}")  # type: ignore
-            text = "\n".join(text_chunks)
-            log.info("PDF read successfully", pdf_path=pdf_path, session_id=self.session_id, pages=len(text_chunks))
-            return text
+            file_path = Path(doc_path)
+            file_ext = file_path.suffix.lower()
+            
+            if file_ext == '.pdf':
+                return self._read_pdf(doc_path)
+            elif file_ext in ['.docx']:
+                return self._read_docx(doc_path)
+            elif file_ext in ['.ppt', '.pptx']:
+                return self._read_ppt(doc_path)
+            elif file_ext in ['.xlsx', '.xls']:
+                return self._read_excel(doc_path)
+            elif file_ext == '.csv':
+                return self._read_csv(doc_path)
+            elif file_ext in ['.txt','.md']:
+                return self._read_text(doc_path)
+            elif file_ext == '.json':
+                return self._read_json(doc_path)
         except Exception as e:
-            log.error("Failed to read PDF", error=str(e), pdf_path=pdf_path, session_id=self.session_id)
-            raise DocumentPortalException(f"Could not process PDF: {pdf_path}", e) from e
+            log.error('Failed to read document', error=str(e), doc_path=doc_path, session_id=self.session_id)
+            raise DocumentPortalException(f'Could not process document: {doc_path}', e) from e
+    
+    
+    def _read_pdf(self, pdf_path: str) -> str:
+        """Original PDF reading logic"""
+        text_chunks = []
+        with fitz.open(pdf_path) as doc:
+            for page_num in range(doc.page_count):
+                page = doc.load_page(page_num)
+                text_chunks.append(f"\n--- Page {page_num + 1} ---\n{page.get_text()}")
+        text = "\n".join(text_chunks)
+        log.info("PDF read successfully", pdf_path=pdf_path, pages=len(text_chunks))
+        return text
+
+    def _read_docx(self, docx_path: str) -> str:
+        """Read Word documents - placeholder for implementation"""
+        # Will implement with python-docx
+        log.info("DOCX reading - placeholder", path=docx_path)
+        return f"DOCX content from {docx_path} - TO BE IMPLEMENTED"
+
+    def _read_ppt(self, ppt_path: str) -> str:
+        """Read PowerPoint documents - placeholder for implementation"""
+        # Will implement with python-pptx
+        log.info("PPT reading - placeholder", path=ppt_path)
+        return f"PPT content from {ppt_path} - TO BE IMPLEMENTED"
+
+    def _read_excel(self, excel_path: str) -> str:
+        """Read Excel documents - placeholder for implementation"""
+        # Will implement with pandas/openpyxl
+        log.info("Excel reading - placeholder", path=excel_path)
+        return f"Excel content from {excel_path} - TO BE IMPLEMENTED"
+
+    def _read_csv(self, csv_path: str) -> str:
+        """Read CSV documents - placeholder for implementation"""
+        # Will implement with pandas
+        log.info("CSV reading - placeholder", path=csv_path)
+        return f"CSV content from {csv_path} - TO BE IMPLEMENTED"
+
+    def _read_text(self, text_path: str) -> str:
+        """Read plain text and markdown files"""
+        with open(text_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        log.info("Text file read successfully", path=text_path)
+        return content
+
+    def _read_json(self, json_path: str) -> str:
+        """Read JSON files"""
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        content = json.dumps(data, indent=2, ensure_ascii=False)
+        log.info("JSON file read successfully", path=json_path)
+        return content    
+        
+        
 class DocumentComparator:
     """
-    Save, read & combine PDFs for comparison with session-based versioning.
+    Save, read & combine any document type for comparison with session-based versioning.
     """
     def __init__(self, base_dir: str = "data/document_compare", session_id: Optional[str] = None):
         self.base_dir = Path(base_dir)
@@ -225,55 +299,63 @@ class DocumentComparator:
         log.info("DocumentComparator initialized", session_path=str(self.session_path))
 
     def save_uploaded_files(self, reference_file, actual_file):
+        """UPDATED: Save any supported document types (was PDF only)"""
         try:
             ref_path = self.session_path / reference_file.name
             act_path = self.session_path / actual_file.name
+            
+            # Validate file types
+            for file_obj, path in ((reference_file, ref_path), (actual_file, act_path)):
+                file_ext = path.suffix.lower()
+                if file_ext not in SUPPORTED_EXTENSIONS:
+                    raise ValueError(f"Unsupported file type: {file_ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
+            
+            # Save files
             for fobj, out in ((reference_file, ref_path), (actual_file, act_path)):
-                if not fobj.name.lower().endswith(".pdf"):
-                    raise ValueError("Only PDF files are allowed.")
                 with open(out, "wb") as f:
                     if hasattr(fobj, "read"):
                         f.write(fobj.read())
                     else:
                         f.write(fobj.getbuffer())
+                        
             log.info("Files saved", reference=str(ref_path), actual=str(act_path), session=self.session_id)
             return ref_path, act_path
+            
         except Exception as e:
-            log.error("Error saving PDF files", error=str(e), session=self.session_id)
+            log.error("Error saving files", error=str(e), session=self.session_id)
             raise DocumentPortalException("Error saving files", e) from e
-
-    def read_pdf(self, pdf_path: Path) -> str:
+    def read_document(self, doc_path: Path) -> str:
+        """UPDATED: Read any document type (was read_pdf only)"""
         try:
-            with fitz.open(pdf_path) as doc:
-                if doc.is_encrypted:
-                    raise ValueError(f"PDF is encrypted: {pdf_path.name}")
-                parts = []
-                for page_num in range(doc.page_count):
-                    page = doc.load_page(page_num)
-                    text = page.get_text()  # type: ignore
-                    if text.strip():
-                        parts.append(f"\n --- Page {page_num + 1} --- \n{text}")
-            log.info("PDF read successfully", file=str(pdf_path), pages=len(parts))
-            return "\n".join(parts)
+            # Use DocHandler for universal document reading
+            doc_handler = DocHandler()
+            content = doc_handler.read_document(str(doc_path))
+            log.info("Document read successfully", file=str(doc_path))
+            return content
+            
         except Exception as e:
-            log.error("Error reading PDF", file=str(pdf_path), error=str(e))
-            raise DocumentPortalException("Error reading PDF", e) from e
+            log.error("Error reading document", file=str(doc_path), error=str(e))
+            raise DocumentPortalException("Error reading document", e) from e
 
     def combine_documents(self) -> str:
+        """UPDATED: Combine any document types (was PDF only)"""
         try:
             doc_parts = []
             for file in sorted(self.session_path.iterdir()):
-                if file.is_file() and file.suffix.lower() == ".pdf":
-                    content = self.read_pdf(file)
+                if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS:
+                    content = self.read_document(file)
                     doc_parts.append(f"Document: {file.name}\n{content}")
+            
             combined_text = "\n\n".join(doc_parts)
             log.info("Documents combined", count=len(doc_parts), session=self.session_id)
             return combined_text
+            
         except Exception as e:
             log.error("Error combining documents", error=str(e), session=self.session_id)
             raise DocumentPortalException("Error combining documents", e) from e
 
     def clean_old_sessions(self, keep_latest: int = 3):
+        """Unchanged - cleanup old sessions"""
         try:
             sessions = sorted([f for f in self.base_dir.iterdir() if f.is_dir()], reverse=True)
             for folder in sessions[keep_latest:]:
