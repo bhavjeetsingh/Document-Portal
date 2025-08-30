@@ -15,14 +15,14 @@ from src.document_ingestion.data_ingestion import (
 from src.document_analyzer.data_analysis import DocumentAnalyzer
 from src.document_compare.document_comparator import DocumentComparatorLLM
 from src.document_chat.retrieval import ConversationalRAG
-from utils.document_ops import FastAPIFileAdapter,read_pdf_via_handler
+from utils.document_ops import SUPPORTED_EXTENSIONS, FastAPIFileAdapter,read_pdf_via_handler, validate_document_file,get_supported_extensions
 from logger import GLOBAL_LOGGER as log
 
 FAISS_BASE = os.getenv("FAISS_BASE", "faiss_index")
 UPLOAD_BASE = os.getenv("UPLOAD_BASE", "data")
 FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")  # <--- keep consistent with save_local()
 
-app = FastAPI(title="Document Portal API", version="0.1")
+app = FastAPI(title="Document Portal API", version="0.1", description="Universal Document Processing API - Supports PDF, DOCX, PPT, Excel, CSV, TXT, JSON")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -48,29 +48,56 @@ def health() -> Dict[str, str]:
     log.info("Health check passed.")
     return {"status": "ok", "service": "document-portal"}
 
+@app.get('/supported-formats')
+def get_supported_formats() -> Dict[str, Any]:
+    "Get list of supported file formats"
+    extensions = get_supported_extensions()
+    return {
+        'supported_extensions': list(extensions),
+        'examples': {
+            'documents': ['.pdf', '.docx', '.txt', '.md'],
+            'presentation':['.ppt', '.pptx'],
+            'spreadsheets': ['.xlsx', '.xls', '.csv'],
+            'data': ['.json']
+        }
+    }
+
 # ---------- ANALYZE ----------
 @app.post("/analyze")
 async def analyze_document(file: UploadFile = File(...)) -> Any:
     try:
         log.info(f"Received file for analysis: {file.filename}")
+        
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in SUPPORTED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f'Unsupported file type: {file_ext}. Supported formats: {','.join(SUPPORTED_EXTENSIONS)}'
+            )
         dh = DocHandler()
         saved_path = dh.save_pdf(FastAPIFileAdapter(file))
         text = read_pdf_via_handler(dh, saved_path)
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail='Document appears to be empty or unreadable')
         analyzer = DocumentAnalyzer()
         result = analyzer.analyze_document(text)
-        log.info("Document analysis complete.")
+        log.info("Document analysis complete.", file_type=file_ext, content_lenght=len(text))
         return JSONResponse(content=result)
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("Error during document analysis")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+        log.exception("Error during document analysis", filename=file.filename)
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 # ---------- COMPARE ----------
 @app.post("/compare")
 async def compare_documents(reference: UploadFile = File(...), actual: UploadFile = File(...)) -> Any:
     try:
         log.info(f"Comparing files: {reference.filename} vs {actual.filename}")
+        
+        ref_ext = Path(reference.filename).suffix.lower()
+        act_ext = Path(actual.filename).suffix.lower()
+        
         dc = DocumentComparator()
         ref_path, act_path = dc.save_uploaded_files(
             FastAPIFileAdapter(reference), FastAPIFileAdapter(actual)
