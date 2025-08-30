@@ -11,8 +11,8 @@ from src.document_ingestion.data_ingestion import (
     DocHandler,
     DocumentComparator,
     ChatIngestor,
-    SUPPORTED_EXTENSIONS
 )
+from constants import SUPPORTED_EXTENSIONS
 from src.document_analyzer.data_analysis import DocumentAnalyzer
 from src.document_compare.document_comparator import DocumentComparatorLLM
 from src.document_chat.retrieval import ConversationalRAG

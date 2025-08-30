@@ -12,8 +12,8 @@ from langchain.schema import Document
 from logger import GLOBAL_LOGGER as log
 from exception.custom_exception import DocumentPortalException
 
-# Import the complete DocHandler
-from src.document_ingestion.data_ingestion import DocHandler, SUPPORTED_EXTENSIONS
+# Import constants to avoid circular imports
+from constants import SUPPORTED_EXTENSIONS
 
 class FastAPIFileAdapter:
     """
@@ -41,6 +41,9 @@ def load_documents(file_paths: Union[List[Union[str, Path]], Iterable[Path]]) ->
     Supports all file types defined in SUPPORTED_EXTENSIONS
     Compatible with both new paths list and old Iterable[Path] interface
     """
+    # Import here to avoid circular imports
+    from src.document_ingestion.data_ingestion import DocHandler
+    
     documents = []
     doc_handler = DocHandler()
     
@@ -97,7 +100,7 @@ def load_documents(file_paths: Union[List[Union[str, Path]], Iterable[Path]]) ->
              loaded=len(documents))
     return documents
 
-def read_pdf_via_handler(doc_handler: DocHandler, pdf_path: str) -> str:
+def read_pdf_via_handler(doc_handler, pdf_path: str) -> str:
     """
     Legacy function for backward compatibility
     Now uses the universal read_document method
